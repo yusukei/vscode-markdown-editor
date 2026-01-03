@@ -32,6 +32,18 @@
   },
   "main": "out/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "markdown-editor",
+        "displayName": "Markdown Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "markdown-editor.openEditor",

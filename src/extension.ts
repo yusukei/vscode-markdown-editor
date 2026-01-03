@@ -10,18 +10,95 @@ function showError(msg: string) {
   vscode.window.showErrorMessage(`[markdown-editor] ${msg}`)
 }
 
+/**
+ * Sanitize filename to prevent path traversal attacks
+ */
+function sanitizeFilename(filename: string): string {
+  // Remove any path separators and parent directory references
+  return filename
+    .replace(/^\.+/, '') // Remove leading dots
+    .replace(/[/\\]/g, '_') // Replace path separators
+    .replace(/\.\./g, '_') // Replace parent directory references
+    .replace(/[^\w\-_.]/g, '_') // Replace other unsafe characters
+}
+
+/**
+ * Validate that a path is within allowed directory
+ */
+function isPathWithinDirectory(childPath: string, parentPath: string): boolean {
+  const relative = NodePath.relative(parentPath, childPath)
+  return !relative.startsWith('..') && !NodePath.isAbsolute(relative)
+}
+
+/**
+ * Sanitize CSS to prevent XSS attacks
+ */
+function sanitizeCSS(css: string): string {
+  if (!css) return ''
+  // Remove potentially dangerous CSS features
+  return css
+    .replace(/<\s*\/?\s*style[^>]*>/gi, '') // Remove style tags
+    .replace(/<\s*\/?\s*script[^>]*>/gi, '') // Remove script tags
+    .replace(/javascript:/gi, '') // Remove javascript: protocol
+    .replace(/expression\s*\(/gi, '') // Remove CSS expressions
+    .replace(/@import/gi, '') // Remove @import
+    .replace(/<!--/g, '')
+    .replace(/-->/g, '')
+}
+
 export function activate(context: vscode.ExtensionContext) {
+  // Register custom editor provider
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'markdown-editor',
+      new MarkdownEditorProvider(context),
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
+        supportsMultipleEditorsPerDocument: false,
+      }
+    )
+  )
+
+  // Register command for opening from command palette or context menu
   context.subscriptions.push(
     vscode.commands.registerCommand(
       'markdown-editor.openEditor',
       (uri?: vscode.Uri, ...args) => {
         debug('command', uri, args)
-        EditorPanel.createOrShow(context, uri)
+        if (uri) {
+          vscode.commands.executeCommand('vscode.openWith', uri, 'markdown-editor')
+        } else {
+          EditorPanel.createOrShow(context, uri)
+        }
       }
     )
   )
 
   context.globalState.setKeysForSync([KeyVditorOptions])
+}
+
+/**
+ * Provider for markdown custom editor
+ */
+class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  public async resolveCustomTextEditor(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _token: vscode.CancellationToken
+  ): Promise<void> {
+    // Create an EditorPanel instance to handle this editor
+    new EditorPanel(
+      this.context,
+      webviewPanel,
+      this.context.extensionUri,
+      document,
+      document.uri
+    )
+  }
 }
 
 /**
@@ -83,7 +160,7 @@ class EditorPanel {
       EditorPanel.viewType,
       'markdown-editor',
       column || vscode.ViewColumn.One,
-      EditorPanel.getWebviewOptions(uri)
+      EditorPanel.getWebviewOptions(uri, extensionUri)
     )
 
     EditorPanel.currentPanel = new EditorPanel(
@@ -95,22 +172,36 @@ class EditorPanel {
     )
   }
 
-  private static getFolders(): vscode.Uri[] {
-    const data = []
-    for (let i = 65; i <= 90; i++) {
-      data.push(vscode.Uri.file(`${String.fromCharCode(i)}:/`))
-    }
-    return data
-  }
-
   static getWebviewOptions(
-    uri?: vscode.Uri
+    uri?: vscode.Uri,
+    extensionUri?: vscode.Uri
   ): vscode.WebviewOptions & vscode.WebviewPanelOptions {
+    const localResourceRoots: vscode.Uri[] = []
+
+    // Add extension resources
+    if (extensionUri) {
+      localResourceRoots.push(extensionUri)
+    }
+
+    // Only allow access to workspace folders
+    if (uri) {
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri)
+      if (workspaceFolder) {
+        localResourceRoots.push(workspaceFolder.uri)
+      }
+    }
+
+    // Add all workspace folders
+    if (vscode.workspace.workspaceFolders) {
+      localResourceRoots.push(
+        ...vscode.workspace.workspaceFolders.map((folder) => folder.uri)
+      )
+    }
+
     return {
       // Enable javascript in the webview
       enableScripts: true,
-
-            localResourceRoots: [vscode.Uri.file("/"), ...this.getFolders()],
+      localResourceRoots,
       retainContextWhenHidden: true,
       enableCommandUris: true,
     }
@@ -123,15 +214,18 @@ class EditorPanel {
     return vscode.workspace.getConfiguration('markdown-editor')
   }
 
-  private constructor(
+  public constructor(
     private readonly _context: vscode.ExtensionContext,
     private readonly _panel: vscode.WebviewPanel,
     private readonly _extensionUri: vscode.Uri,
     public _document: vscode.TextDocument, // 当前有 markdown 编辑器
     public _uri = _document.uri // 从资源管理器打开，只有 uri 没有 _document
   ) {
-    // Set the webview's initial html content
+    // Set webview options for custom editor
+    const options = EditorPanel.getWebviewOptions(this._uri, this._extensionUri)
+    this._panel.webview.options = options
 
+    // Set the webview's initial html content
     this._init()
 
     // Listen for when the panel is disposed
@@ -227,6 +321,19 @@ class EditorPanel {
           }
           case 'upload': {
             const assetsFolder = EditorPanel.getAssetsFolder(this._uri)
+
+            // Validate that assets folder is within workspace
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(this._uri)
+            if (!workspaceFolder) {
+              showError('Cannot upload files: No workspace folder found')
+              break
+            }
+
+            if (!isPathWithinDirectory(assetsFolder, workspaceFolder.uri.fsPath)) {
+              showError(`Invalid image folder: Path is outside workspace`)
+              break
+            }
+
             try {
               await vscode.workspace.fs.createDirectory(
                 vscode.Uri.file(assetsFolder)
@@ -234,20 +341,44 @@ class EditorPanel {
             } catch (error) {
               console.error(error)
               showError(`Invalid image folder: ${assetsFolder}`)
+              break
             }
-            await Promise.all(
-              message.files.map(async (f: any) => {
+
+            const uploadedFiles: string[] = []
+
+            for (const f of message.files) {
+              // Sanitize filename to prevent path traversal
+              const sanitizedName = sanitizeFilename(f.name)
+              if (!sanitizedName) {
+                showError(`Invalid filename: ${f.name}`)
+                continue
+              }
+
+              const targetPath = NodePath.join(assetsFolder, sanitizedName)
+
+              // Double-check the final path is still within workspace
+              if (!isPathWithinDirectory(targetPath, workspaceFolder.uri.fsPath)) {
+                showError(`Invalid file path: ${sanitizedName}`)
+                continue
+              }
+
+              try {
                 const content = Buffer.from(f.base64, 'base64')
-                return vscode.workspace.fs.writeFile(
-                  vscode.Uri.file(NodePath.join(assetsFolder, f.name)),
+                await vscode.workspace.fs.writeFile(
+                  vscode.Uri.file(targetPath),
                   content
                 )
-              })
-            )
-            const files = message.files.map((f: any) =>
+                uploadedFiles.push(sanitizedName)
+              } catch (error) {
+                console.error(error)
+                showError(`Failed to upload file: ${sanitizedName}`)
+              }
+            }
+
+            const files = uploadedFiles.map((filename) =>
               NodePath.relative(
                 NodePath.dirname(this._fsPath),
-                NodePath.join(assetsFolder, f.name)
+                NodePath.join(assetsFolder, filename)
               ).replace(/\\/g, '/')
             )
             this._panel.webview.postMessage({
@@ -258,8 +389,18 @@ class EditorPanel {
           }
           case 'open-link': {
             let url = message.href
-            if (!/^http/.test(url)) {
-              url = NodePath.resolve(this._fsPath, '..', url)
+            // Case-insensitive check for http/https protocols
+            if (!/^https?:\/\//i.test(url)) {
+              // For local paths, validate they are within workspace
+              const resolvedPath = NodePath.resolve(this._fsPath, '..', url)
+              const workspaceFolder = vscode.workspace.getWorkspaceFolder(this._uri)
+
+              if (workspaceFolder && !isPathWithinDirectory(resolvedPath, workspaceFolder.uri.fsPath)) {
+                showError(`Cannot open file outside workspace: ${url}`)
+                break
+              }
+
+              url = resolvedPath
             }
             vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(url))
             break
@@ -272,12 +413,13 @@ class EditorPanel {
   }
 
   static getAssetsFolder(uri: vscode.Uri) {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri)
     const imageSaveFolder = (
       EditorPanel.config.get<string>('imageSaveFolder') || 'assets'
     )
       .replace(
         '${projectRoot}',
-        vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath || ''
+        workspaceFolder?.uri.fsPath || ''
       )
       .replace('${file}', uri.fsPath)
       .replace(
@@ -285,10 +427,19 @@ class EditorPanel {
         NodePath.basename(uri.fsPath, NodePath.extname(uri.fsPath))
       )
       .replace('${dir}', NodePath.dirname(uri.fsPath))
+
     const assetsFolder = NodePath.resolve(
       NodePath.dirname(uri.fsPath),
       imageSaveFolder
     )
+
+    // Validate that the resolved path is within workspace
+    // If not within workspace, fall back to 'assets' folder next to the markdown file
+    if (workspaceFolder && !isPathWithinDirectory(assetsFolder, workspaceFolder.uri.fsPath)) {
+      debug(`Warning: Configured image folder '${imageSaveFolder}' is outside workspace. Using default 'assets' folder.`)
+      return NodePath.resolve(NodePath.dirname(uri.fsPath), 'assets')
+    }
+
     return assetsFolder
   }
 
@@ -370,7 +521,7 @@ class EditorPanel {
 
 				<title>markdown editor</title>
         <style>` +
-      EditorPanel.config.get<string>('customCss') +
+      sanitizeCSS(EditorPanel.config.get<string>('customCss') || '') +
       `</style>
 			</head>
 			<body>
