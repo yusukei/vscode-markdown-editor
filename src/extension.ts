@@ -135,9 +135,9 @@ class EditorPanel {
       return
     }
     let doc: undefined | vscode.TextDocument
-    // from context menu : 从当前打开的 textEditor 中寻找 是否有当前 markdown 的 editor, 有的话则绑定 document
+    // From context menu: Find if there is a markdown editor for the current active TextEditor, if so bind the document
     if (uri) {
-      // 从右键打开文件，先打开文档然后开启自动同步，不然没法保存文件和同步到已经打开的document
+      // Open file from context menu: Open document first then enable auto-sync, otherwise cannot save file or sync to opened document
       doc = await vscode.workspace.openTextDocument(uri)
     } else {
       doc = vscode.window.activeTextEditor?.document
@@ -218,8 +218,8 @@ class EditorPanel {
     private readonly _context: vscode.ExtensionContext,
     private readonly _panel: vscode.WebviewPanel,
     private readonly _extensionUri: vscode.Uri,
-    public _document: vscode.TextDocument, // 当前有 markdown 编辑器
-    public _uri = _document.uri // 从资源管理器打开，只有 uri 没有 _document
+    public _document: vscode.TextDocument,
+    public _uri = _document.uri // Opened from explorer, only uri exists, no _document
   ) {
     // Set webview options for custom editor
     const options = EditorPanel.getWebviewOptions(this._uri, this._extensionUri)
@@ -238,12 +238,25 @@ class EditorPanel {
         this.dispose()
       }
     }, this._disposables)
+    // re-init webview when VS Code theme changes
+    vscode.window.onDidChangeActiveColorTheme((theme) => {
+      this._update({
+        type: 'init',
+        options: {
+          useVscodeThemeColor: EditorPanel.config.get<boolean>(
+            'useVscodeThemeColor'
+          ),
+          ...this._context.globalState.get(KeyVditorOptions),
+        },
+        theme: theme.kind === vscode.ColorThemeKind.Dark ? 'dark' : 'light',
+      })
+    }, null, this._disposables)
     // update EditorPanel when vsc editor changes
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.fileName !== this._document.fileName) {
         return
       }
-      // 当 webview panel 激活时不将由 webview编辑导致的 vsc 编辑器更新同步回 webview
+      // When webview panel is active, do not sync updates from VS Code editor caused by webview edits back to webview
       // don't change webview panel when webview panel is focus
       if (this._panel.active) {
         return
@@ -287,7 +300,7 @@ class EditorPanel {
               },
               theme:
                 vscode.window.activeColorTheme.kind ===
-                vscode.ColorThemeKind.Dark
+                  vscode.ColorThemeKind.Dark
                   ? 'dark'
                   : 'light',
             })
@@ -302,7 +315,7 @@ class EditorPanel {
             showError(message.content)
             break
           case 'edit': {
-            // 只有当 webview 处于编辑状态时才同步到 vsc 编辑器，避免重复刷新
+            // Only sync to VS Code editor when webview is in edit mode to avoid repeated refresh
             if (this._panel.active) {
               await syncToEditor()
               this._updateEditTitle()
@@ -534,3 +547,4 @@ class EditorPanel {
     )
   }
 }
+
