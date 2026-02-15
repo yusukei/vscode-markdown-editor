@@ -65,6 +65,18 @@ body[data-use-vscode-theme-color="1"] .vditor {
 .vditor-reset {
   padding-left: 35px !important;
 }
+/* Source mode: SV editor full width, preview hidden */
+.vditor-source-mode .vditor-sv {
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 !important;
+  border-right: none !important;
+}
+.vditor-source-mode .vditor-preview {
+  display: none !important;
+  width: 0 !important;
+}
+
 .jconfirm {
   color: black;
 }

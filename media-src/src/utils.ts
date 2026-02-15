@@ -5,6 +5,7 @@ import 'jquery-confirm/css/jquery-confirm.css'
 
 import _ from 'lodash'
 import Vditor from 'vditor'
+import { isSourceMode } from './source-mode'
 window.vscode =
   (window as any).acquireVsCodeApi && (window as any).acquireVsCodeApi()
 ;(window as any).global = window
@@ -82,10 +83,11 @@ export const fileToBase64 = async (file) => {
 }
 // 保存 vditor 配置到 vscode 同步存储
 export function saveVditorOptions() {
-  let vditorOptions = {
+  let vditorOptions: any = {
     theme: vditor.vditor.options.theme,
     mode: vditor.vditor.currentMode,
     preview: vditor.vditor.options.preview,
+    sourceMode: isSourceMode(),
   }
   vscode.postMessage({
     command: 'save-options',

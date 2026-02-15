@@ -5,12 +5,15 @@ const Langs = {
     copyHtml: 'Copy HTML',
     resetConfig: 'Reset config',
     resetConfirm: "Are you sure to reset the markdown-editor's config?",
+    sourceMode: 'Source',
   },
   ja_JP: {
     save: '保存する',
+    sourceMode: 'ソース',
   },
   ko_KR: {
     save: '저장',
+    sourceMode: '소스',
   },
   zh_CN: {
     save: '保存',
@@ -18,6 +21,7 @@ const Langs = {
     copyHtml: '复制 HTML',
     resetConfig: '重置配置',
     resetConfirm: '确定要重置 markdown-editor 的配置么?',
+    sourceMode: '源码',
   },
 }
 

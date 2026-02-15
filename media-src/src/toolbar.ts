@@ -1,5 +1,6 @@
 import { t } from "./lang"
 import { confirm } from "./utils"
+import { toggleSourceMode } from "./source-mode"
 
 export const toolbar = [
 	{
@@ -45,6 +46,15 @@ export const toolbar = [
 	'redo',
 	'|',
 	{ name: 'edit-mode', tipPosition: 'e', },
+	{
+		name: 'source-mode',
+		tipPosition: 'e',
+		tip: t('sourceMode'),
+		icon: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="16" height="16"><path fill="currentColor" d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0L19.2 12l-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>',
+		click() {
+			toggleSourceMode()
+		},
+	},
 	{
 		name: 'more',
 		tipPosition: 'e',

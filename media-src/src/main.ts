@@ -9,6 +9,7 @@ import {
   handleToolbarClick,
   saveVditorOptions,
 } from './utils'
+import { hookEditModeButtons, restoreSourceMode } from './source-mode'
 
 import { merge } from 'lodash'
 import Vditor from 'vditor'
@@ -60,6 +61,8 @@ function initVditor(msg) {
       handleToolbarClick()
       fixTableIr()
       fixPanelHover()
+      hookEditModeButtons()
+      restoreSourceMode(defaultOptions)
     },
     input() {
       inputTimer && clearTimeout(inputTimer)
