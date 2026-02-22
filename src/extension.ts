@@ -76,6 +76,20 @@ export function activate(context: vscode.ExtensionContext) {
     )
   )
 
+  // Register CustomTextEditorProvider for "Open With" and default editor configuration
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      'markdown-editor.customEditor',
+      new MarkdownEditorProvider(context),
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
+        supportsMultipleEditorsPerDocument: false,
+      }
+    )
+  )
+
   context.globalState.setKeysForSync([KeyVditorOptions])
 }
 

@@ -43,6 +43,19 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "markdown-editor.customEditor",
+        "displayName": "Markdown Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "commands": [
